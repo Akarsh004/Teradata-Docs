@@ -1,0 +1,341 @@
+-------------STR TOKEN--------------
+
+Select '1/2/14' as date1,TO_CHAR(TO_DATE (
+case  when strtok(date1, '/', 2) between 1 and 9 then strtok(date1,'/', 3)||'/0'||strtok(date1, '/', 1)||'/'||strtok(date1,'/', 2)
+else  strtok(date1, '/', 3)||'/'||strtok(date1, '/', 1)||'/'||strtok(date1,'/', 2)end , 'YY/MM/DD'), 'DD/MM/YYYY') as "DD/MM/YYYY";
+
+
+FOR FASTLOAD USING SCRIPT:
+
+ 
+
+First create the table with the respective columns.
+
+Eg:
+
+CREATE MULTISET TABLE GEEDW_D_PLP_S.CDR_PART_ATTRIBUTE ,NO FALLBACK ,
+
+     NO BEFORE JOURNAL,
+
+     NO AFTER JOURNAL,
+
+     CHECKSUM = DEFAULT,
+
+     DEFAULT MERGEBLOCKRATIO
+
+     (
+
+                PART_NUMBER Varchar(128),
+
+                PARTDESCRIPTION Varchar(128)
+
+      )
+
+PRIMARY INDEX CDR_PART_ATTRIBUTE_PI (PART_NUMBER);
+
+ 
+
+ 
+
+Then save the file in the format in which data will be seen.
+
+Eg: flow_parts.txt
+
+eg: filename.csv,filename.txt etc.
+
+ 
+
+ 
+
+Now make the fastload script :
+
+ 
+
+fastload<<here
+
+ 
+
+dateform ANSIDATE;
+
+ 
+
+errlimit 1000000;
+
+tenacity 4;       
+
+sessions 1;
+
+sleep 6;
+
+ 
+
+LOGON GEEDW_DEV_PLP.PW.GE.COM/GEEDW_D_PLP_ETL,gueiuserI4a3;
+
+ 
+
+DROP TABLE GEEDW_D_PLP_S.ET_CDR_PART_ATTRIBUTE ;
+
+DROP TABLE GEEDW_D_PLP_S.UV_CDR_PART_ATTRIBUTE ;
+
+SET RECORD VARTEXT "&";
+
+ 
+
+define
+
+                PART_NUMBER (Varchar(128), NULLIF = '*'),
+
+                PARTDESCRIPTION (Varchar(128), NULLIF = '*')
+
+file=/data/informatica/ETCOE/EEDW01/SrcFiles/flow_parts.txt;
+
+ 
+
+show;
+
+ 
+
+begin loading GEEDW_D_PLP_S.CDR_PART_ATTRIBUTE errorfiles GEEDW_D_PLP_S.ET_CDR_PART_ATTRIBUTE,  GEEDW_D_PLP_S.UV_CDR_PART_ATTRIBUTE
+
+checkpoint 0 ;
+
+ 
+
+insert into GEEDW_D_PLP_S.CDR_PART_ATTRIBUTE (
+
+                PART_NUMBER,
+
+                PARTDESCRIPTION
+
+) VALUES (
+
+                :PART_NUMBER,
+
+                :PARTDESCRIPTION
+
+) ;
+
+ 
+
+end loading;
+
+ 
+
+logoff;
+
+ 
+
+here
+
+ 
+
+Note:
+
+SET RECORD VARTEXT "&"; -- Be sure of the delimited used,the delimited used here should not be present in the data which we are going to load.
+
+For eg: FUEL NOZ ASSY, DUAL FUEL(as comma(,) is present here we cannot use it in our script as delimiter)
+
+Similarly for all other delimiters(&,|,…).
+
+ 
+
+The name of the error tables should be similar to that of the table being created.
+
+Eg: If table name is CDR_PART_ATTRIBUTE
+
+Then error tables will be ET_CDR_PART_ATTRIBUTE & UV_CDR_PART_ATTRIBUTE.
+
+ 
+
+Be sure of the path of the file and the respective filename along with the format in which it is stored.
+
+ 
+
+If in unix due to some error it shows fastload paused then there will be table lock on the respective table.
+
+In this case make sure to drop the table and create it again and again run the script.
+
+
+-----------------------Merge Query----------------------------
+
+SELECT
+
+'MERGE INTO '||DB1||'.'||TABLE1||' AS A'||x'0A'||'USING ( SELECT'||x'0A'||COL1||'FROM GEEDW_D_PLP_S.'||TABLE1||' AS C'||x'0A'||'WHERE NOT EXISTS'||x'0A'||'(SELECT 1 FROM  '||
+
+DB1||'.'||TABLE1||' AS D'||x'0A'||' WHERE '||JOIN_COL1||' C.CHECKSUMTEXT=D.CHECKSUMTEXT) ) AS B'||x'0A'||'ON ('||JOIN_COL2||')'||x'0A'||'WHEN MATCHED THEN'||x'0A'||
+
+'UPDATE SET'||x'0A'||COL2||x'0A'||'WHEN NOT MATCHED THEN'||x'0A'||'INSERT ( '||x'0A'||COL3||x'0A'||')'||x'0A'||'VALUES'||x'0A'||'('||x'0A'||COL4||x'0A'||');' AS MERGE1
+
+ 
+
+FROM
+
+(
+
+SELECT
+
+DISTINCT
+
+TEMP.DB1 AS DB1,
+
+TEMP.TABLE1 AS TABLE1,
+
+TEMP.COL1 AS COL1,
+
+TEMP.COL2 AS COL2,
+
+TEMP.COL3 AS COL3,
+
+TEMP.COL4 AS COL4,
+
+TEMP1.JOIN_COL1,
+
+TEMP1.JOIN_COL2
+
+ 
+
+FROM
+
+(
+
+SELECT
+
+DB1,
+
+TABLE1,
+
+  TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.C1)||x'0A' ORDER BY A.COLUMNID) (VARCHAR(10000)))) AS COL1
+
+,TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.C2)||x'0A' ORDER BY A.COLUMNID) (VARCHAR(10000)))) AS COL2
+
+,TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.C3)||x'0A' ORDER BY A.COLUMNID) (VARCHAR(10000)))) AS COL3
+
+,TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.C4)||x'0A' ORDER BY A.COLUMNID) (VARCHAR(10000)))) AS COL4
+
+--,COLUMN1
+
+ 
+
+  FROM
+
+  (
+
+ 
+
+  SELECT
+
+TRIM(A1.DATABASENAME) AS DB1,
+
+TRIM(A1.TABLENAME) AS TABLE1,
+
+--TRIM(A1.COLUMNNAME) AS COLUMN1,
+
+CASE WHEN A1.COLUMNID = TEMP.COL_MIN THEN TRIM(A1.COLUMNNAME)
+
+ELSE ','||TRIM(A1.COLUMNNAME) END AS C1,
+
+CASE WHEN A1.COLUMNID = TEMP.COL_MIN THEN ' '||TRIM(A1.COLUMNNAME)||'=B.'||TRIM(A1.COLUMNNAME)
+
+ELSE ','||TRIM(A1.COLUMNNAME)||'=B.'||TRIM(A1.COLUMNNAME) END AS C2,
+
+CASE WHEN A1.COLUMNID = TEMP.COL_MIN THEN ' A.'||TRIM(A1.COLUMNNAME)
+
+ELSE ',A.'||TRIM(A1.COLUMNNAME) END AS C3,
+
+CASE WHEN A1.COLUMNID = TEMP.COL_MIN THEN ' B.'||TRIM(A1.COLUMNNAME)
+
+ELSE ',B.'||TRIM(A1.COLUMNNAME) END AS C4,
+
+A1.COLUMNID
+
+FROM
+
+  (
+
+  SELECT
+
+  DATABASENAME
+
+  ,TABLENAME
+
+,MIN(COLUMNID) AS COL_MIN
+
+FROM DBC.COLUMNS
+
+WHERE DATABASENAME = 'GEEDW_D_PLP_BULK_T'
+
+  AND TABLENAME LIKE 'CDR_ENP_%'
+
+  GROUP BY 1,2
+
+  ) TEMP
+
+  INNER JOIN
+
+  (SELECT DATABASENAME, TABLENAME, COLUMNNAME, COLUMNID FROM DBC.COLUMNS
+
+  WHERE DATABASENAME = 'GEEDW_D_PLP_BULK_T'
+
+  AND TABLENAME LIKE 'CDR_ENP_%') A1
+
+  ON TEMP.DATABASENAME = A1.DATABASENAME AND TEMP.TABLENAME = A1.TABLENAME
+
+  ) A
+
+GROUP BY 1,2
+
+) TEMP
+
+ 
+
+INNER JOIN
+
+ 
+
+(SELECT
+
+DB_NM,
+
+TBL_NM,
+
+TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.COL_CONDITION1)||' AND ' ORDER BY A.COLUMNPOSITION) (VARCHAR(10000)))) AS JOIN_COL1,
+
+TRIM(TRAILING ',' FROM (XMLAGG(TRIM(A.COL_CONDITION2)||' AND ' ORDER BY A.COLUMNPOSITION) (VARCHAR(10000)))) AS TEMP_COL2
+
+,SUBSTR(TEMP_COL2,1,LENGTH(TEMP_COL2)-4) AS JOIN_COL2
+
+--,COLUMN1
+
+FROM
+
+(
+
+SELECT
+
+TRIM(DATABASENAME) AS DB_NM,
+
+TRIM(TABLENAME) AS TBL_NM,
+
+TRIM(COLUMNNAME) AS COLUMN1,
+
+COLUMNPOSITION,
+
+'C.'||COLUMNNAME||' = D.'||COLUMNNAME AS COL_CONDITION1,
+
+'A.'||COLUMNNAME||' = B.'||COLUMNNAME AS COL_CONDITION2
+
+FROM DBC.INDICESV
+
+WHERE DATABASENAME LIKE '%GEEDW_D_PLP_BULK_T%'
+
+AND TABLENAME LIKE '%CDR_ENP_%'
+
+) A
+
+GROUP BY 1,2
+
+)TEMP1
+
+ON (TEMP.DB1 = TEMP1.DB_NM AND TEMP.TABLE1 = TEMP1.TBL_NM )
+
+) TEST
